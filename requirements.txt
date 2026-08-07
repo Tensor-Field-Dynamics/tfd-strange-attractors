@@ -1,0 +1,11 @@
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+# Die grundlegenden Tensor- und GPU-Berechnungsbibliotheken werden geladen.
+torch
+torchvision
+torchaudio
+
+# Zusätzliche Abhängigkeiten für Datenverarbeitung und Bildexport.
+numpy
+pandas
+pillow
