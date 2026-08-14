@@ -80,3 +80,90 @@ class ThomasAttractor:
             density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
 
         return density_map.numpy()
+
+
+class PeterDeJongAttractor:
+    """
+    In dieser Klasse wird die Berechnung des Peter-De-Jong-Attraktors gekapselt.
+    Die Trajektorien werden massiv-parallel auf der GPU iteriert.
+    Um den VRAM-Verbrauch zu minimieren, wird eine Batch-Verarbeitung angewandt.
+    """
+    def __init__(self, a: float, b: float, c: float, d: float, device: str = "cuda"):
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+        self.device = torch.device(device if torch.cuda.is_available() else "cpu")
+
+    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int) -> np.ndarray:
+        """
+        Ein 2D-Histogramm (Dichtefeld) wird durch Iteration der diskreten Attraktor-Gleichungen akkumuliert.
+        Langsame CPU-Schleifen werden hierbei durch vektorisierte Tensor-Operationen ersetzt.
+        """
+        density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
+        x = (torch.rand(num_points, device=self.device) * 2) - 1
+        y = (torch.rand(num_points, device=self.device) * 2) - 1
+
+        for _ in range(iters_per_point):
+            x_new = torch.sin(self.a * y) - torch.cos(self.b * x)
+            y_new = torch.sin(self.c * x) - torch.cos(self.d * y)
+            x, y = x_new, y_new
+
+            x_pixel = ((x + 2.5) / 5.0 * width).to(torch.long)
+            y_pixel = ((y + 2.5) / 5.0 * height).to(torch.long)
+
+            valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
+            x_valid = x_pixel[valid_mask].cpu()
+            y_valid = y_pixel[valid_mask].cpu()
+
+            density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
+
+        return density_map.numpy()
+
+
+class AizawaAttractor:
+    """
+    In dieser Klasse wird das System des Aizawa-Attraktors implementiert.
+    Da es sich um ein kontinuierliches System von Differentialgleichungen handelt,
+    wird die Trajektorie mittels des expliziten Euler-Verfahrens numerisch integriert.
+    """
+    def __init__(self, a: float = 0.95, b: float = 0.7, c: float = 0.6, d: float = 3.5, 
+                 e: float = 0.25, f: float = 0.1, dt: float = 0.01, device: str = "cuda"):
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+        self.e = e
+        self.f = f
+        self.dt = dt
+        self.device = torch.device(device if torch.cuda.is_available() else "cpu")
+
+    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int) -> np.ndarray:
+        """
+        Die 3D-Koordinaten werden in Vektorform berechnet und für die 2D-Ausgabe 
+        durch eine orthogonale Projektion auf eine Schnittebene reduziert.
+        """
+        density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
+        x = (torch.rand(num_points, device=self.device) * 4) - 2
+        y = (torch.rand(num_points, device=self.device) * 4) - 2
+        z = (torch.rand(num_points, device=self.device) * 4) - 2
+
+        for _ in range(iters_per_point):
+            dx = ((z - self.b) * x - self.d * y) * self.dt
+            dy = (self.d * x + (z - self.b) * y) * self.dt
+            dz = (self.c + self.a * z - (z**3) / 3.0 - (x**2 + y**2) * (1.0 + self.e * z) + self.f * z * (x**3)) * self.dt
+            
+            x += dx
+            y += dy
+            z += dz
+
+            x_pixel = ((x + 3.0) / 6.0 * width).to(torch.long)
+            y_pixel = ((y + 3.0) / 6.0 * height).to(torch.long)
+
+            valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
+            x_valid = x_pixel[valid_mask].cpu()
+            y_valid = y_pixel[valid_mask].cpu()
+
+            density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
+
+        return density_map.numpy()
