@@ -90,66 +90,155 @@ The engine implements 12 chaotic dynamical systems spanning discrete recursive m
 ### Discrete Attractors (2D)
 
 #### 1. Clifford Attractor
+
 Defined by the iterative recurrence relations:
-$$\begin{aligned} x_{n+1} &= \sin(a \cdot y_n) + c \cdot \cos(a \cdot x_n) \\ y_{n+1} &= \sin(b \cdot x_n) + d \cdot \cos(b \cdot y_n) \end{aligned}$$
+
+$$
+\begin{aligned}
+x_{n+1} &= \sin(a \cdot y_n) + c \cdot \cos(a \cdot x_n) \\
+y_{n+1} &= \sin(b \cdot x_n) + d \cdot \cos(b \cdot y_n)
+\end{aligned}
+$$
+
 *Default parameters:* $a = -1.4, b = 1.6, c = 1.0, d = 0.7$.
 
 #### 2. Peter de Jong Attractor
+
 Multi-loop trigonometric attractor with high sensitivity to phase perturbations:
-$$\begin{aligned} x_{n+1} &= \sin(a \cdot y_n) - \cos(b \cdot x_n) \\ y_{n+1} &= \sin(c \cdot x_n) - \cos(d \cdot y_n) \end{aligned}$$
+
+$$
+\begin{aligned}
+x_{n+1} &= \sin(a \cdot y_n) - \cos(b \cdot x_n) \\
+y_{n+1} &= \sin(c \cdot x_n) - \cos(d \cdot y_n)
+\end{aligned}
+$$
 
 ---
 
 ### Continuous Attractors (3D ODEs)
 
 #### 3. Thomas Attractor (Cyclically Symmetric)
+
 Cyclically symmetric system modeling friction in a 3D velocity field:
-$$\frac{dx}{dt} = \sin(y) - b \cdot x, \quad \frac{dy}{dt} = \sin(z) - b \cdot y, \quad \frac{dz}{dt} = \sin(x) - b \cdot z$$
+
+$$
+\frac{dx}{dt} = \sin(y) - b \cdot x, \quad \frac{dy}{dt} = \sin(z) - b \cdot y, \quad \frac{dz}{dt} = \sin(x) - b \cdot z
+$$
+
 *Default parameters:* $b = 0.19, dt = 0.05$.
 
 #### 4. Aizawa Attractor
+
 Continuous autonomous system exhibiting torus-shaped structural formation and sphere-like core:
-$$\begin{aligned} \frac{dx}{dt} &= (z - b) \cdot x - d \cdot y \\ \frac{dy}{dt} &= d \cdot x + (z - b) \cdot y \\ \frac{dz}{dt} &= c + a \cdot z - \frac{z^3}{3} - (x^2 + y^2)(1 + e \cdot z) + f \cdot z \cdot x^3 \end{aligned}$$
+
+$$
+\begin{aligned}
+\frac{dx}{dt} &= (z - b) \cdot x - d \cdot y \\
+\frac{dy}{dt} &= d \cdot x + (z - b) \cdot y \\
+\frac{dz}{dt} &= c + a \cdot z - \frac{z^3}{3} - (x^2 + y^2)(1 + e \cdot z) + f \cdot z \cdot x^3
+\end{aligned}
+$$
+
 *Default parameters:* $a = 0.95, b = 0.7, c = 0.6, d = 3.5, e = 0.25, f = 0.1, dt = 0.01$.
 
 #### 5. Lorenz Attractor
+
 The canonical atmospheric convection model:
-$$\frac{dx}{dt} = \sigma (y - x), \quad \frac{dy}{dt} = x (\rho - z) - y, \quad \frac{dz}{dt} = x \cdot y - \beta \cdot z$$
+
+$$
+\frac{dx}{dt} = \sigma (y - x), \quad \frac{dy}{dt} = x (\rho - z) - y, \quad \frac{dz}{dt} = x \cdot y - \beta \cdot z
+$$
+
 *Default parameters:* $\sigma = 10.0, \rho = 28.0, \beta = 8/3, dt = 0.005$.
 
 #### 6. Dadras Attractor
+
 Five-parameter continuous chaotic system exhibiting intricate multi-scroll topologies:
-$$\begin{aligned} \frac{dx}{dt} &= y - a \cdot x + b \cdot y \cdot z \\ \frac{dy}{dt} &= c \cdot y - x \cdot z + z \\ \frac{dz}{dt} &= d \cdot x \cdot y - e \cdot z \end{aligned}$$
+
+$$
+\begin{aligned}
+\frac{dx}{dt} &= y - a \cdot x + b \cdot y \cdot z \\
+\frac{dy}{dt} &= c \cdot y - x \cdot z + z \\
+\frac{dz}{dt} &= d \cdot x \cdot y - e \cdot z
+\end{aligned}
+$$
+
 *Default parameters:* $a = 3.0, b = 2.7, c = 1.7, d = 2.0, e = 9.0, dt = 0.005$.
 
 #### 7. Chen Attractor
+
 Dual-scroll chaotic attractor belonging to the generalized Lorenz family:
-$$\frac{dx}{dt} = a(y - x), \quad \frac{dy}{dt} = (c - a)x - x \cdot z + c \cdot y, \quad \frac{dz}{dt} = x \cdot y - b \cdot z$$
+
+$$
+\frac{dx}{dt} = a(y - x), \quad \frac{dy}{dt} = (c - a)x - x \cdot z + c \cdot y, \quad \frac{dz}{dt} = x \cdot y - b \cdot z
+$$
+
 *Default parameters:* $a = 35.0, b = 3.0, c = 28.0, dt = 0.002$.
 
 #### 8. Lorenz-83 Attractor
+
 Simplified model of the atmospheric general circulation:
-$$\begin{aligned} \frac{dx}{dt} &= -a \cdot x - y^2 - z^2 + a \cdot F \\ \frac{dy}{dt} &= -y + x \cdot y - b \cdot x \cdot z + G \\ \frac{dz}{dt} &= -z + b \cdot x \cdot y + x \cdot z \end{aligned}$$
+
+$$
+\begin{aligned}
+\frac{dx}{dt} &= -a \cdot x - y^2 - z^2 + a \cdot F \\
+\frac{dy}{dt} &= -y + x \cdot y - b \cdot x \cdot z + G \\
+\frac{dz}{dt} &= -z + b \cdot x \cdot y + x \cdot z
+\end{aligned}
+$$
+
 *Default parameters:* $a = 0.95, b = 7.91, F = 4.83, G = 4.66, dt = 0.002$.
 
 #### 9. Rössler Attractor
+
 Continuous ODE system designed for studying spiral chaos:
-$$\frac{dx}{dt} = -y - z, \quad \frac{dy}{dt} = x + a \cdot y, \quad \frac{dz}{dt} = b + z(x - c)$$
+
+$$
+\frac{dx}{dt} = -y - z, \quad \frac{dy}{dt} = x + a \cdot y, \quad \frac{dz}{dt} = b + z(x - c)
+$$
+
 *Default parameters:* $a = 0.2, b = 0.2, c = 5.7, dt = 0.01$.
 
 #### 10. Halvorsen Attractor
+
 Cyclically symmetric three-dimensional attractor with wide orbits:
-$$\begin{aligned} \frac{dx}{dt} &= -a \cdot x - 4y - 4z - y^2 \\ \frac{dy}{dt} &= -a \cdot y - 4z - 4x - z^2 \\ \frac{dz}{dt} &= -a \cdot z - 4x - 4y - x^2 \end{aligned}$$
+
+$$
+\begin{aligned}
+\frac{dx}{dt} &= -a \cdot x - 4y - 4z - y^2 \\
+\frac{dy}{dt} &= -a \cdot y - 4z - 4x - z^2 \\
+\frac{dz}{dt} &= -a \cdot z - 4x - 4y - x^2
+\end{aligned}
+$$
+
 *Default parameters:* $a = 1.89, dt = 0.005$.
 
 #### 11. Rabinovich–Fabrikant Attractor
+
 Nonlinear dynamical system describing modulational instability in non-equilibrium media:
-$$\begin{aligned} \frac{dx}{dt} &= y(z - 1 + x^2) + \gamma \cdot x \\ \frac{dy}{dt} &= x(3z + 1 - x^2) + \gamma \cdot y \\ \frac{dz}{dt} &= -2z(\alpha + x \cdot y) \end{aligned}$$
+
+$$
+\begin{aligned}
+\frac{dx}{dt} &= y(z - 1 + x^2) + \gamma \cdot x \\
+\frac{dy}{dt} &= x(3z + 1 - x^2) + \gamma \cdot y \\
+\frac{dz}{dt} &= -2z(\alpha + x \cdot y)
+\end{aligned}
+$$
+
 *Default parameters:* $\alpha = 0.14, \gamma = 0.10, dt = 0.005$.
 
 #### 12. Three-Scroll Unified Attractor
+
 Multi-scroll continuous chaotic attractor with complex topological folding:
-$$\begin{aligned} \frac{dx}{dt} &= a(y - x) + d \cdot x \cdot z \\ \frac{dy}{dt} &= b \cdot x - x \cdot z + f \cdot y \\ \frac{dz}{dt} &= c \cdot z + x \cdot y - e \cdot x^2 \end{aligned}$$
+
+$$
+\begin{aligned}
+\frac{dx}{dt} &= a(y - x) + d \cdot x \cdot z \\
+\frac{dy}{dt} &= b \cdot x - x \cdot z + f \cdot y \\
+\frac{dz}{dt} &= c \cdot z + x \cdot y - e \cdot x^2
+\end{aligned}
+$$
+
 *Default parameters:* $a = 32.48, b = 45.84, c = 1.18, d = 0.13, e = 0.57, f = 14.7, dt = 0.001$.
 
 ---
@@ -180,14 +269,20 @@ custom_cam = CameraConfig(
 ```
 
 The camera applies homogeneous transformation matrices directly in PyTorch GPU tensors:
-$$\mathbf{P}_{\text{clip}} = \mathbf{M}_{\text{proj}} \cdot \mathbf{M}_{\text{view}} \cdot \begin{bmatrix} x \\ y \\ z \\ 1 \end{bmatrix}, \quad \mathbf{P}_{\text{ndc}} = \frac{\mathbf{P}_{\text{clip}}^{xyz}}{w_{\text{clip}}}$$
+
+$$
+\mathbf{P}_{\text{clip}} = \mathbf{M}_{\text{proj}} \cdot \mathbf{M}_{\text{view}} \cdot \begin{bmatrix} x \\ y \\ z \\ 1 \end{bmatrix}, \quad \mathbf{P}_{\text{ndc}} = \frac{\mathbf{P}_{\text{clip}}^{xyz}}{w_{\text{clip}}}
+$$
 
 ---
 
 ## Color Grading, Themes & Tonemapping
 
 Post-processing operates on the accumulated density matrix using ACES filmic tone mapping:
-$$f(x) = \frac{x(2.51x + 0.03)}{x(2.43x + 0.59) + 0.14}$$
+
+$$
+f(x) = \frac{x(2.51x + 0.03)}{x(2.43x + 0.59) + 0.14}
+$$
 
 12 color profiles are available out of the box in `config/themes.py`:
 - `neon_cyberpunk`, `dark_matter`, `solar_flare`, `emerald_forest`, `deep_ocean`, `amethyst_nebula`, `crimson_synth`, `golden_hour`, `arctic_aurora`, `volcanic_ash`, `cyber_ghost`, `cosmic_twilight`.
