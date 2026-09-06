@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Outputs and rendered media (keep repo clean of test renders, animations, and video)
+outputs/feed/
+outputs/animations/
+outputs/theme_showcase/
+
+# Environment and IDE
+.venv/
+env/
+venv/
+.idea/
+.vscode/
+*.swp

@@ -1,12 +1,8 @@
 import torch
 import numpy as np
+from core.camera import CameraConfig, project_points
 
 class CliffordAttractor:
-    """
-    In dieser Klasse wird die Berechnung des Clifford-Attraktors gekapselt.
-    Die Trajektorien werden massiv-parallel auf der GPU iteriert.
-    Um den VRAM-Verbrauch zu minimieren, wird eine Batch-Verarbeitung angewandt.
-    """
     def __init__(self, a: float, b: float, c: float, d: float, device: str = "cuda"):
         self.a = a
         self.b = b
@@ -14,80 +10,38 @@ class CliffordAttractor:
         self.d = d
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
 
-    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int) -> np.ndarray:
-        """
-        Ein 2D-Histogramm (Dichtefeld) wird durch Iteration der Attraktor-Gleichungen akkumuliert.
-        Langsame CPU-Schleifen werden hierbei durch vektorisierte Tensor-Operationen ersetzt.
-        """
-        density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
-        x = torch.rand(num_points, device=self.device) * 2 - 1
-        y = torch.rand(num_points, device=self.device) * 2 - 1
-
-        for _ in range(iters_per_point):
-            x_new = torch.sin(self.a * y) + self.c * torch.cos(self.a * x)
-            y_new = torch.sin(self.b * x) + self.d * torch.cos(self.b * y)
-            x, y = x_new, y_new
-
-            x_pixel = ((x + 2.5) / 5.0 * width).to(torch.long)
-            y_pixel = ((y + 2.5) / 5.0 * height).to(torch.long)
-
-            valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
-            x_valid = x_pixel[valid_mask].cpu()
-            y_valid = y_pixel[valid_mask].cpu()
-
-            density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
-
-        return density_map.numpy()
-
-
-class ThomasAttractor:
-    """
-    In dieser Klasse wird das System des zyklisch symmetrischen Thomas-Attraktors implementiert.
-    Da es sich um ein kontinuierliches System von Differentialgleichungen handelt,
-    wird die Trajektorie mittels des expliziten Euler-Verfahrens numerisch integriert.
-    """
-    def __init__(self, b: float = 0.19, dt: float = 0.05, device: str = "cuda"):
-        self.b = b
-        self.dt = dt
-        self.device = torch.device(device if torch.cuda.is_available() else "cpu")
-
-    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int) -> np.ndarray:
-        """
-        Die 3D-Koordinaten werden in Vektorform berechnet und für die 2D-Ausgabe 
-        durch eine orthogonale Projektion auf eine Schnittebene reduziert.
-        """
-        density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
-        x = (torch.rand(num_points, device=self.device) * 4) - 2
-        y = (torch.rand(num_points, device=self.device) * 4) - 2
-        z = (torch.rand(num_points, device=self.device) * 4) - 2
-
-        for _ in range(iters_per_point):
-            dx = (torch.sin(y) - self.b * x) * self.dt
-            dy = (torch.sin(z) - self.b * y) * self.dt
-            dz = (torch.sin(x) - self.b * z) * self.dt
+    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int, camera_config: CameraConfig = None) -> np.ndarray:
+        if camera_config is None:
+            from core.camera import CAMERA_PRESETS
+            camera_config = CAMERA_PRESETS["Default 2D"]
             
-            x += dx
-            y += dy
-            z += dz
+        density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
+        batch_size = 2_000_000
+        
+        for start_idx in range(0, num_points, batch_size):
+            current_batch_size = min(batch_size, num_points - start_idx)
+            x = (torch.rand(current_batch_size, device=self.device) * 2.0) - 1.0
+            y = (torch.rand(current_batch_size, device=self.device) * 2.0) - 1.0
 
-            x_pixel = ((x + 6.0) / 12.0 * width).to(torch.long)
-            y_pixel = ((y + 6.0) / 12.0 * height).to(torch.long)
+            for _ in range(iters_per_point):
+                x_new = torch.sin(self.a * y) + self.c * torch.cos(self.a * x)
+                y_new = torch.sin(self.b * x) + self.d * torch.cos(self.b * y)
+                x, y = x_new, y_new
 
-            valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
-            x_valid = x_pixel[valid_mask].cpu()
-            y_valid = y_pixel[valid_mask].cpu()
+                # 2D Affine Transform from CameraConfig
+                x_pixel = (((x - camera_config.position[0]) / camera_config.scale + 0.5) * width).to(torch.long)
+                y_pixel = (((y - camera_config.position[1]) / camera_config.scale + 0.5) * height).to(torch.long)
 
-            density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
+                valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
+                x_valid = x_pixel[valid_mask].cpu()
+                y_valid = y_pixel[valid_mask].cpu()
+
+                density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
 
         return density_map.numpy()
 
 
 class PeterDeJongAttractor:
-    """
-    In dieser Klasse wird die Berechnung des Peter-De-Jong-Attraktors gekapselt.
-    Die Trajektorien werden massiv-parallel auf der GPU iteriert.
-    Um den VRAM-Verbrauch zu minimieren, wird eine Batch-Verarbeitung angewandt.
-    """
     def __init__(self, a: float, b: float, c: float, d: float, device: str = "cuda"):
         self.a = a
         self.b = b
@@ -95,38 +49,78 @@ class PeterDeJongAttractor:
         self.d = d
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
 
-    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int) -> np.ndarray:
-        """
-        Ein 2D-Histogramm (Dichtefeld) wird durch Iteration der diskreten Attraktor-Gleichungen akkumuliert.
-        Langsame CPU-Schleifen werden hierbei durch vektorisierte Tensor-Operationen ersetzt.
-        """
+    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int, camera_config: CameraConfig = None) -> np.ndarray:
+        if camera_config is None:
+            from core.camera import CAMERA_PRESETS
+            camera_config = CAMERA_PRESETS["Default 2D"]
+            
         density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
-        x = (torch.rand(num_points, device=self.device) * 2) - 1
-        y = (torch.rand(num_points, device=self.device) * 2) - 1
+        batch_size = 2_000_000
+        
+        for start_idx in range(0, num_points, batch_size):
+            current_batch_size = min(batch_size, num_points - start_idx)
+            x = (torch.rand(current_batch_size, device=self.device) * 2.0) - 1.0
+            y = (torch.rand(current_batch_size, device=self.device) * 2.0) - 1.0
 
-        for _ in range(iters_per_point):
-            x_new = torch.sin(self.a * y) - torch.cos(self.b * x)
-            y_new = torch.sin(self.c * x) - torch.cos(self.d * y)
-            x, y = x_new, y_new
+            for _ in range(iters_per_point):
+                x_new = torch.sin(self.a * y) - torch.cos(self.b * x)
+                y_new = torch.sin(self.c * x) - torch.cos(self.d * y)
+                x, y = x_new, y_new
 
-            x_pixel = ((x + 2.5) / 5.0 * width).to(torch.long)
-            y_pixel = ((y + 2.5) / 5.0 * height).to(torch.long)
+                x_pixel = (((x - camera_config.position[0]) / camera_config.scale + 0.5) * width).to(torch.long)
+                y_pixel = (((y - camera_config.position[1]) / camera_config.scale + 0.5) * height).to(torch.long)
 
-            valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
-            x_valid = x_pixel[valid_mask].cpu()
-            y_valid = y_pixel[valid_mask].cpu()
+                valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
+                x_valid = x_pixel[valid_mask].cpu()
+                y_valid = y_pixel[valid_mask].cpu()
 
-            density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
+                density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
+
+        return density_map.numpy()
+
+
+class ThomasAttractor:
+    def __init__(self, b: float = 0.19, dt: float = 0.05, device: str = "cuda"):
+        self.b = b
+        self.dt = dt
+        self.device = torch.device(device if torch.cuda.is_available() else "cpu")
+
+    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int, camera_config: CameraConfig = None) -> np.ndarray:
+        if camera_config is None:
+            from core.camera import CAMERA_PRESETS
+            camera_config = CAMERA_PRESETS["Three-Quarter-Prospect"]
+        density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
+        batch_size = 2_000_000
+        
+        for start_idx in range(0, num_points, batch_size):
+            current_batch_size = min(batch_size, num_points - start_idx)
+            x = (torch.rand(current_batch_size, device=self.device) * 4) - 2
+            y = (torch.rand(current_batch_size, device=self.device) * 4) - 2
+            z = (torch.rand(current_batch_size, device=self.device) * 4) - 2
+
+            for _ in range(iters_per_point):
+                dx = (torch.sin(y) - self.b * x) * self.dt
+                dy = (torch.sin(z) - self.b * y) * self.dt
+                dz = (torch.sin(x) - self.b * z) * self.dt
+                x += dx
+                y += dy
+                z += dz
+
+                points_3d = torch.stack([x, y, z], dim=1)
+                pixel_coords = project_points(points_3d, camera_config, width, height)
+                x_pixel = pixel_coords[:, 0].to(torch.long)
+                y_pixel = pixel_coords[:, 1].to(torch.long)
+                
+                valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
+                x_valid = x_pixel[valid_mask].cpu()
+                y_valid = y_pixel[valid_mask].cpu()
+                
+                density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
 
         return density_map.numpy()
 
 
 class AizawaAttractor:
-    """
-    In dieser Klasse wird das System des Aizawa-Attraktors implementiert.
-    Da es sich um ein kontinuierliches System von Differentialgleichungen handelt,
-    wird die Trajektorie mittels des expliziten Euler-Verfahrens numerisch integriert.
-    """
     def __init__(self, a: float = 0.95, b: float = 0.7, c: float = 0.6, d: float = 3.5, 
                  e: float = 0.25, f: float = 0.1, dt: float = 0.01, device: str = "cuda"):
         self.a = a
@@ -138,33 +132,37 @@ class AizawaAttractor:
         self.dt = dt
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
 
-    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int) -> np.ndarray:
-        """
-        Die 3D-Koordinaten werden in Vektorform berechnet und für die 2D-Ausgabe 
-        durch eine orthogonale Projektion auf eine Schnittebene reduziert.
-        """
+    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int, camera_config: CameraConfig = None) -> np.ndarray:
+        if camera_config is None:
+            from core.camera import CAMERA_PRESETS
+            camera_config = CAMERA_PRESETS["Three-Quarter-Prospect"]
         density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
-        x = (torch.rand(num_points, device=self.device) * 4) - 2
-        y = (torch.rand(num_points, device=self.device) * 4) - 2
-        z = (torch.rand(num_points, device=self.device) * 4) - 2
+        batch_size = 2_000_000
+        
+        for start_idx in range(0, num_points, batch_size):
+            current_batch_size = min(batch_size, num_points - start_idx)
+            x = (torch.rand(current_batch_size, device=self.device) * 4) - 2
+            y = (torch.rand(current_batch_size, device=self.device) * 4) - 2
+            z = (torch.rand(current_batch_size, device=self.device) * 4) - 2
 
-        for _ in range(iters_per_point):
-            dx = ((z - self.b) * x - self.d * y) * self.dt
-            dy = (self.d * x + (z - self.b) * y) * self.dt
-            dz = (self.c + self.a * z - (z**3) / 3.0 - (x**2 + y**2) * (1.0 + self.e * z) + self.f * z * (x**3)) * self.dt
-            
-            x += dx
-            y += dy
-            z += dz
+            for _ in range(iters_per_point):
+                dx = ((z - self.b) * x - self.d * y) * self.dt
+                dy = (self.d * x + (z - self.b) * y) * self.dt
+                dz = (self.c + self.a * z - (z**3) / 3.0 - (x**2 + y**2) * (1.0 + self.e * z) + self.f * z * (x**3)) * self.dt
+                x += dx
+                y += dy
+                z += dz
 
-            x_pixel = ((x + 3.0) / 6.0 * width).to(torch.long)
-            y_pixel = ((y + 3.0) / 6.0 * height).to(torch.long)
-
-            valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
-            x_valid = x_pixel[valid_mask].cpu()
-            y_valid = y_pixel[valid_mask].cpu()
-
-            density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
+                points_3d = torch.stack([x, y, z], dim=1)
+                pixel_coords = project_points(points_3d, camera_config, width, height)
+                x_pixel = pixel_coords[:, 0].to(torch.long)
+                y_pixel = pixel_coords[:, 1].to(torch.long)
+                
+                valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
+                x_valid = x_pixel[valid_mask].cpu()
+                y_valid = y_pixel[valid_mask].cpu()
+                
+                density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
 
         return density_map.numpy()
 
@@ -177,29 +175,37 @@ class LorenzAttractor:
         self.dt = dt
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
 
-    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int) -> np.ndarray:
+    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int, camera_config: CameraConfig = None) -> np.ndarray:
+        if camera_config is None:
+            from core.camera import CAMERA_PRESETS
+            camera_config = CAMERA_PRESETS["Three-Quarter-Prospect"]
         density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
-        x = (torch.rand(num_points, device=self.device) * 40) - 20
-        y = (torch.rand(num_points, device=self.device) * 40) - 20
-        z = (torch.rand(num_points, device=self.device) * 40) - 0
+        batch_size = 2_000_000
+        
+        for start_idx in range(0, num_points, batch_size):
+            current_batch_size = min(batch_size, num_points - start_idx)
+            x = (torch.rand(current_batch_size, device=self.device) * 40) - 20
+            y = (torch.rand(current_batch_size, device=self.device) * 40) - 20
+            z = (torch.rand(current_batch_size, device=self.device) * 40) - 0
 
-        for _ in range(iters_per_point):
-            dx = (self.sigma * (y - x)) * self.dt
-            dy = (x * (self.rho - z) - y) * self.dt
-            dz = (x * y - self.beta * z) * self.dt
-            
-            x += dx
-            y += dy
-            z += dz
+            for _ in range(iters_per_point):
+                dx = (self.sigma * (y - x)) * self.dt
+                dy = (x * (self.rho - z) - y) * self.dt
+                dz = (x * y - self.beta * z) * self.dt
+                x += dx
+                y += dy
+                z += dz
 
-            x_pixel = ((x + 30.0) / 60.0 * width).to(torch.long)
-            y_pixel = ((y + 30.0) / 60.0 * height).to(torch.long)
-
-            valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
-            x_valid = x_pixel[valid_mask].cpu()
-            y_valid = y_pixel[valid_mask].cpu()
-
-            density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
+                points_3d = torch.stack([x, y, z], dim=1)
+                pixel_coords = project_points(points_3d, camera_config, width, height)
+                x_pixel = pixel_coords[:, 0].to(torch.long)
+                y_pixel = pixel_coords[:, 1].to(torch.long)
+                
+                valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
+                x_valid = x_pixel[valid_mask].cpu()
+                y_valid = y_pixel[valid_mask].cpu()
+                
+                density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
 
         return density_map.numpy()
 
@@ -214,29 +220,37 @@ class DadrasAttractor:
         self.dt = dt
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
 
-    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int) -> np.ndarray:
+    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int, camera_config: CameraConfig = None) -> np.ndarray:
+        if camera_config is None:
+            from core.camera import CAMERA_PRESETS
+            camera_config = CAMERA_PRESETS["Three-Quarter-Prospect"]
         density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
-        x = (torch.rand(num_points, device=self.device) * 20) - 10
-        y = (torch.rand(num_points, device=self.device) * 20) - 10
-        z = (torch.rand(num_points, device=self.device) * 20) - 10
+        batch_size = 2_000_000
+        
+        for start_idx in range(0, num_points, batch_size):
+            current_batch_size = min(batch_size, num_points - start_idx)
+            x = (torch.rand(current_batch_size, device=self.device) * 20) - 10
+            y = (torch.rand(current_batch_size, device=self.device) * 20) - 10
+            z = (torch.rand(current_batch_size, device=self.device) * 20) - 10
 
-        for _ in range(iters_per_point):
-            dx = (y - self.a * x + self.b * y * z) * self.dt
-            dy = (self.c * y - x * z + z) * self.dt
-            dz = (self.d * x * y - self.e * z) * self.dt
-            
-            x += dx
-            y += dy
-            z += dz
+            for _ in range(iters_per_point):
+                dx = (y - self.a * x + self.b * y * z) * self.dt
+                dy = (self.c * y - x * z + z) * self.dt
+                dz = (self.d * x * y - self.e * z) * self.dt
+                x += dx
+                y += dy
+                z += dz
 
-            x_pixel = ((x + 20.0) / 40.0 * width).to(torch.long)
-            y_pixel = ((y + 20.0) / 40.0 * height).to(torch.long)
-
-            valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
-            x_valid = x_pixel[valid_mask].cpu()
-            y_valid = y_pixel[valid_mask].cpu()
-
-            density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
+                points_3d = torch.stack([x, y, z], dim=1)
+                pixel_coords = project_points(points_3d, camera_config, width, height)
+                x_pixel = pixel_coords[:, 0].to(torch.long)
+                y_pixel = pixel_coords[:, 1].to(torch.long)
+                
+                valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
+                x_valid = x_pixel[valid_mask].cpu()
+                y_valid = y_pixel[valid_mask].cpu()
+                
+                density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
 
         return density_map.numpy()
 
@@ -249,29 +263,37 @@ class ChenAttractor:
         self.dt = dt
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
 
-    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int) -> np.ndarray:
+    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int, camera_config: CameraConfig = None) -> np.ndarray:
+        if camera_config is None:
+            from core.camera import CAMERA_PRESETS
+            camera_config = CAMERA_PRESETS["Three-Quarter-Prospect"]
         density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
-        x = (torch.rand(num_points, device=self.device) * 40) - 20
-        y = (torch.rand(num_points, device=self.device) * 40) - 20
-        z = (torch.rand(num_points, device=self.device) * 40) - 20
+        batch_size = 2_000_000
+        
+        for start_idx in range(0, num_points, batch_size):
+            current_batch_size = min(batch_size, num_points - start_idx)
+            x = (torch.rand(current_batch_size, device=self.device) * 40) - 20
+            y = (torch.rand(current_batch_size, device=self.device) * 40) - 20
+            z = (torch.rand(current_batch_size, device=self.device) * 40) - 20
 
-        for _ in range(iters_per_point):
-            dx = (self.alpha * x - y * z) * self.dt
-            dy = (self.beta * y + x * z) * self.dt
-            dz = (self.delta * z + (x * y) / 3.0) * self.dt
-            
-            x += dx
-            y += dy
-            z += dz
+            for _ in range(iters_per_point):
+                dx = (self.alpha * x - y * z) * self.dt
+                dy = (self.beta * y + x * z) * self.dt
+                dz = (self.delta * z + (x * y) / 3.0) * self.dt
+                x += dx
+                y += dy
+                z += dz
 
-            x_pixel = ((x + 30.0) / 60.0 * width).to(torch.long)
-            y_pixel = ((y + 30.0) / 60.0 * height).to(torch.long)
-
-            valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
-            x_valid = x_pixel[valid_mask].cpu()
-            y_valid = y_pixel[valid_mask].cpu()
-
-            density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
+                points_3d = torch.stack([x, y, z], dim=1)
+                pixel_coords = project_points(points_3d, camera_config, width, height)
+                x_pixel = pixel_coords[:, 0].to(torch.long)
+                y_pixel = pixel_coords[:, 1].to(torch.long)
+                
+                valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
+                x_valid = x_pixel[valid_mask].cpu()
+                y_valid = y_pixel[valid_mask].cpu()
+                
+                density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
 
         return density_map.numpy()
 
@@ -285,29 +307,37 @@ class Lorenz83Attractor:
         self.dt = dt
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
 
-    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int) -> np.ndarray:
+    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int, camera_config: CameraConfig = None) -> np.ndarray:
+        if camera_config is None:
+            from core.camera import CAMERA_PRESETS
+            camera_config = CAMERA_PRESETS["Three-Quarter-Prospect"]
         density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
-        x = (torch.rand(num_points, device=self.device) * 10) - 5
-        y = (torch.rand(num_points, device=self.device) * 10) - 5
-        z = (torch.rand(num_points, device=self.device) * 10) - 5
+        batch_size = 2_000_000
+        
+        for start_idx in range(0, num_points, batch_size):
+            current_batch_size = min(batch_size, num_points - start_idx)
+            x = (torch.rand(current_batch_size, device=self.device) * 10) - 5
+            y = (torch.rand(current_batch_size, device=self.device) * 10) - 5
+            z = (torch.rand(current_batch_size, device=self.device) * 10) - 5
 
-        for _ in range(iters_per_point):
-            dx = (-self.a * x - y**2 - z**2 + self.a * self.f) * self.dt
-            dy = (-y + x * y - self.b * x * z + self.g) * self.dt
-            dz = (-z + self.b * x * y + x * z) * self.dt
-            
-            x += dx
-            y += dy
-            z += dz
+            for _ in range(iters_per_point):
+                dx = (-self.a * x - y**2 - z**2 + self.a * self.f) * self.dt
+                dy = (-y + x * y - self.b * x * z + self.g) * self.dt
+                dz = (-z + self.b * x * y + x * z) * self.dt
+                x += dx
+                y += dy
+                z += dz
 
-            x_pixel = ((x + 10.0) / 20.0 * width).to(torch.long)
-            y_pixel = ((y + 10.0) / 20.0 * height).to(torch.long)
-
-            valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
-            x_valid = x_pixel[valid_mask].cpu()
-            y_valid = y_pixel[valid_mask].cpu()
-
-            density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
+                points_3d = torch.stack([x, y, z], dim=1)
+                pixel_coords = project_points(points_3d, camera_config, width, height)
+                x_pixel = pixel_coords[:, 0].to(torch.long)
+                y_pixel = pixel_coords[:, 1].to(torch.long)
+                
+                valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
+                x_valid = x_pixel[valid_mask].cpu()
+                y_valid = y_pixel[valid_mask].cpu()
+                
+                density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
 
         return density_map.numpy()
 
@@ -320,29 +350,37 @@ class RosslerAttractor:
         self.dt = dt
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
 
-    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int) -> np.ndarray:
+    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int, camera_config: CameraConfig = None) -> np.ndarray:
+        if camera_config is None:
+            from core.camera import CAMERA_PRESETS
+            camera_config = CAMERA_PRESETS["Three-Quarter-Prospect"]
         density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
-        x = (torch.rand(num_points, device=self.device) * 20) - 10
-        y = (torch.rand(num_points, device=self.device) * 20) - 10
-        z = (torch.rand(num_points, device=self.device) * 20) - 10
+        batch_size = 2_000_000
+        
+        for start_idx in range(0, num_points, batch_size):
+            current_batch_size = min(batch_size, num_points - start_idx)
+            x = (torch.rand(current_batch_size, device=self.device) * 20) - 10
+            y = (torch.rand(current_batch_size, device=self.device) * 20) - 10
+            z = (torch.rand(current_batch_size, device=self.device) * 20) - 10
 
-        for _ in range(iters_per_point):
-            dx = -(y + z) * self.dt
-            dy = (x + self.a * y) * self.dt
-            dz = (self.b + z * (x - self.c)) * self.dt
-            
-            x += dx
-            y += dy
-            z += dz
+            for _ in range(iters_per_point):
+                dx = -(y + z) * self.dt
+                dy = (x + self.a * y) * self.dt
+                dz = (self.b + z * (x - self.c)) * self.dt
+                x += dx
+                y += dy
+                z += dz
 
-            x_pixel = ((x + 20.0) / 40.0 * width).to(torch.long)
-            y_pixel = ((y + 20.0) / 40.0 * height).to(torch.long)
-
-            valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
-            x_valid = x_pixel[valid_mask].cpu()
-            y_valid = y_pixel[valid_mask].cpu()
-
-            density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
+                points_3d = torch.stack([x, y, z], dim=1)
+                pixel_coords = project_points(points_3d, camera_config, width, height)
+                x_pixel = pixel_coords[:, 0].to(torch.long)
+                y_pixel = pixel_coords[:, 1].to(torch.long)
+                
+                valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
+                x_valid = x_pixel[valid_mask].cpu()
+                y_valid = y_pixel[valid_mask].cpu()
+                
+                density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
 
         return density_map.numpy()
 
@@ -353,29 +391,37 @@ class HalvorsenAttractor:
         self.dt = dt
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
 
-    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int) -> np.ndarray:
+    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int, camera_config: CameraConfig = None) -> np.ndarray:
+        if camera_config is None:
+            from core.camera import CAMERA_PRESETS
+            camera_config = CAMERA_PRESETS["Three-Quarter-Prospect"]
         density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
-        x = (torch.rand(num_points, device=self.device) * 10) - 5
-        y = (torch.rand(num_points, device=self.device) * 10) - 5
-        z = (torch.rand(num_points, device=self.device) * 10) - 5
+        batch_size = 2_000_000
+        
+        for start_idx in range(0, num_points, batch_size):
+            current_batch_size = min(batch_size, num_points - start_idx)
+            x = (torch.rand(current_batch_size, device=self.device) * 10) - 5
+            y = (torch.rand(current_batch_size, device=self.device) * 10) - 5
+            z = (torch.rand(current_batch_size, device=self.device) * 10) - 5
 
-        for _ in range(iters_per_point):
-            dx = (-self.a * x - 4 * y - 4 * z - y**2) * self.dt
-            dy = (-self.a * y - 4 * z - 4 * x - z**2) * self.dt
-            dz = (-self.a * z - 4 * x - 4 * y - x**2) * self.dt
-            
-            x += dx
-            y += dy
-            z += dz
+            for _ in range(iters_per_point):
+                dx = (-self.a * x - 4 * y - 4 * z - y**2) * self.dt
+                dy = (-self.a * y - 4 * z - 4 * x - z**2) * self.dt
+                dz = (-self.a * z - 4 * x - 4 * y - x**2) * self.dt
+                x += dx
+                y += dy
+                z += dz
 
-            x_pixel = ((x + 15.0) / 30.0 * width).to(torch.long)
-            y_pixel = ((y + 15.0) / 30.0 * height).to(torch.long)
-
-            valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
-            x_valid = x_pixel[valid_mask].cpu()
-            y_valid = y_pixel[valid_mask].cpu()
-
-            density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
+                points_3d = torch.stack([x, y, z], dim=1)
+                pixel_coords = project_points(points_3d, camera_config, width, height)
+                x_pixel = pixel_coords[:, 0].to(torch.long)
+                y_pixel = pixel_coords[:, 1].to(torch.long)
+                
+                valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
+                x_valid = x_pixel[valid_mask].cpu()
+                y_valid = y_pixel[valid_mask].cpu()
+                
+                density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
 
         return density_map.numpy()
 
@@ -387,29 +433,37 @@ class RabinovichFabrikantAttractor:
         self.dt = dt
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
 
-    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int) -> np.ndarray:
+    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int, camera_config: CameraConfig = None) -> np.ndarray:
+        if camera_config is None:
+            from core.camera import CAMERA_PRESETS
+            camera_config = CAMERA_PRESETS["Three-Quarter-Prospect"]
         density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
-        x = (torch.rand(num_points, device=self.device) * 2) - 1
-        y = (torch.rand(num_points, device=self.device) * 2) - 1
-        z = (torch.rand(num_points, device=self.device) * 2) - 1
+        batch_size = 2_000_000
+        
+        for start_idx in range(0, num_points, batch_size):
+            current_batch_size = min(batch_size, num_points - start_idx)
+            x = (torch.rand(current_batch_size, device=self.device) * 2) - 1
+            y = (torch.rand(current_batch_size, device=self.device) * 2) - 1
+            z = (torch.rand(current_batch_size, device=self.device) * 2) - 1
 
-        for _ in range(iters_per_point):
-            dx = (y * (z - 1 + x**2) + self.gamma * x) * self.dt
-            dy = (x * (3 * z + 1 - x**2) + self.gamma * y) * self.dt
-            dz = (-2 * z * (self.alpha + x * y)) * self.dt
-            
-            x += dx
-            y += dy
-            z += dz
+            for _ in range(iters_per_point):
+                dx = (y * (z - 1 + x**2) + self.gamma * x) * self.dt
+                dy = (x * (3 * z + 1 - x**2) + self.gamma * y) * self.dt
+                dz = (-2 * z * (self.alpha + x * y)) * self.dt
+                x += dx
+                y += dy
+                z += dz
 
-            x_pixel = ((x + 5.0) / 10.0 * width).to(torch.long)
-            y_pixel = ((y + 5.0) / 10.0 * height).to(torch.long)
-
-            valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
-            x_valid = x_pixel[valid_mask].cpu()
-            y_valid = y_pixel[valid_mask].cpu()
-
-            density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
+                points_3d = torch.stack([x, y, z], dim=1)
+                pixel_coords = project_points(points_3d, camera_config, width, height)
+                x_pixel = pixel_coords[:, 0].to(torch.long)
+                y_pixel = pixel_coords[:, 1].to(torch.long)
+                
+                valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
+                x_valid = x_pixel[valid_mask].cpu()
+                y_valid = y_pixel[valid_mask].cpu()
+                
+                density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
 
         return density_map.numpy()
 
@@ -425,28 +479,36 @@ class ThreeScrollUnifiedAttractor:
         self.dt = dt
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
 
-    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int) -> np.ndarray:
+    def generate_density_map(self, width: int, height: int, num_points: int, iters_per_point: int, camera_config: CameraConfig = None) -> np.ndarray:
+        if camera_config is None:
+            from core.camera import CAMERA_PRESETS
+            camera_config = CAMERA_PRESETS["Three-Quarter-Prospect"]
         density_map = torch.zeros((height, width), dtype=torch.float32, device="cpu")
-        x = (torch.rand(num_points, device=self.device) * 20) - 10
-        y = (torch.rand(num_points, device=self.device) * 20) - 10
-        z = (torch.rand(num_points, device=self.device) * 20) - 10
+        batch_size = 2_000_000
+        
+        for start_idx in range(0, num_points, batch_size):
+            current_batch_size = min(batch_size, num_points - start_idx)
+            x = (torch.rand(current_batch_size, device=self.device) * 20) - 10
+            y = (torch.rand(current_batch_size, device=self.device) * 20) - 10
+            z = (torch.rand(current_batch_size, device=self.device) * 20) - 10
 
-        for _ in range(iters_per_point):
-            dx = (self.a * (y - x) + self.d * x * z) * self.dt
-            dy = (self.b * x - x * z + self.f * y) * self.dt
-            dz = (self.c * z + x * y - self.e * (x**2)) * self.dt
-            
-            x += dx
-            y += dy
-            z += dz
+            for _ in range(iters_per_point):
+                dx = (self.a * (y - x) + self.d * x * z) * self.dt
+                dy = (self.b * x - x * z + self.f * y) * self.dt
+                dz = (self.c * z + x * y - self.e * (x**2)) * self.dt
+                x += dx
+                y += dy
+                z += dz
 
-            x_pixel = ((x + 50.0) / 100.0 * width).to(torch.long)
-            y_pixel = ((y + 50.0) / 100.0 * height).to(torch.long)
-
-            valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
-            x_valid = x_pixel[valid_mask].cpu()
-            y_valid = y_pixel[valid_mask].cpu()
-
-            density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
+                points_3d = torch.stack([x, y, z], dim=1)
+                pixel_coords = project_points(points_3d, camera_config, width, height)
+                x_pixel = pixel_coords[:, 0].to(torch.long)
+                y_pixel = pixel_coords[:, 1].to(torch.long)
+                
+                valid_mask = (x_pixel >= 0) & (x_pixel < width) & (y_pixel >= 0) & (y_pixel < height)
+                x_valid = x_pixel[valid_mask].cpu()
+                y_valid = y_pixel[valid_mask].cpu()
+                
+                density_map.index_put_((y_valid, x_valid), torch.tensor(1.0), accumulate=True)
 
         return density_map.numpy()

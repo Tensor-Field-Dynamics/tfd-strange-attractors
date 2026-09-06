@@ -13,9 +13,29 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 from PIL import Image
 from core.attractor_engine import AizawaAttractor
-from core.shading import render_image
+from core.shading import render_image, apply_watermark
 from config.resolutions import TARGET_CONFIGS, TargetPlatform
 from config.themes import THEMES
+from config.branding import BRANDING_ASSETS, BrandingAsset
+
+# ==========================================
+# WATERMARK & BRANDING KONFIGURATION
+# ==========================================
+# Aktivierungsschalter für das Branding-Wasserzeichen
+ENABLE_WATERMARK: bool = True
+
+# Auswahl des Branding-Assets:
+# Optionen:
+#   - BRANDING_ASSETS["white_logo"] ("assets/branding/tfd_logo_white.png") -> Default
+#   - BRANDING_ASSETS["horizontal_1"] ("assets/branding/tfd_logo_horizontal_1.png")
+#   - BRANDING_ASSETS["horizontal_2"] ("assets/branding/tfd_logo_horizontal_2.png")
+#   - BRANDING_ASSETS["logo_1"]         ("assets/branding/tfd_logo_1.png")
+#   - BRANDING_ASSETS["logo_2"]         ("assets/branding/tfd_logo_2.png")
+# Alternativ auch BrandingAsset.WHITE_LOGO.value oder direkter Pfad möglich.
+WATERMARK_PATH: str = BRANDING_ASSETS["white_logo"]
+WATERMARK_OPACITY: float = 0.85
+WATERMARK_SCALE: float = 0.15
+WATERMARK_MARGIN: int = 50
 
 
 def generate_buildup_animation() -> None:
@@ -62,6 +82,16 @@ def generate_buildup_animation() -> None:
         if config.ssaa_factor > 1:
             image = image.resize((config.width, config.height), Image.Resampling.LANCZOS)
 
+        # Branding-Wasserzeichen auf das PIL Image anwenden
+        image = apply_watermark(
+            frame=image,
+            watermark_path=WATERMARK_PATH,
+            enable_watermark=ENABLE_WATERMARK,
+            opacity=WATERMARK_OPACITY,
+            scale=WATERMARK_SCALE,
+            margin=WATERMARK_MARGIN
+        )
+
         # Das Bild wird als nummerierte PNG-Datei gespeichert
         filename = f"frame_{frame_idx:04d}.png"
         filepath = os.path.join(output_dir, filename)
@@ -75,3 +105,4 @@ def generate_buildup_animation() -> None:
 
 if __name__ == "__main__":
     generate_buildup_animation()
+

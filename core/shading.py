@@ -1,5 +1,5 @@
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageEnhance
 from config.themes import ColorTheme
 
 def apply_aces_tonemapping(x: np.ndarray) -> np.ndarray:
@@ -55,3 +55,61 @@ def render_image(density_map: np.ndarray, theme: ColorTheme) -> Image.Image:
     image_array = (image_array * 255).astype(np.uint8)
     
     return Image.fromarray(image_array, mode="RGB")
+
+
+def apply_watermark(
+    frame: Image.Image, 
+    watermark_path: str, 
+    enable_watermark: bool = True, 
+    opacity: float = 0.7, 
+    scale: float = 0.15, 
+    margin: int = 50
+) -> Image.Image:
+    """
+    Ein transparentes Wasserzeichen wird über das gerenderte Basisbild gelegt.
+    
+    Args:
+        frame: Das Basisbild (Render-Frame aus der Pipeline).
+        watermark_path: Der Dateipfad zum PNG-Wasserzeichen.
+        enable_watermark: Boolescher Schalter zur Aktivierung des Overlays.
+        opacity: Die Deckkraft des Wasserzeichens (Skala 0.0 bis 1.0).
+        scale: Die Skalierung relativ zur Breite des Basisbildes.
+        margin: Der Pixelabstand zum rechten unteren Bildrand.
+        
+    Returns:
+        Das modifizierte Bildobjekt (RGB).
+    """
+    if not enable_watermark:
+        return frame
+        
+    # Das Wasserzeichen wird geladen und in den RGBA-Modus konvertiert, 
+    # um Transparenz zu gewährleisten.
+    watermark = Image.open(watermark_path).convert("RGBA")
+    
+    # Die Zielgröße wird basierend auf der Breite des Base-Frames berechnet.
+    target_width = int(frame.width * scale)
+    aspect_ratio = watermark.height / watermark.width
+    target_height = int(target_width * aspect_ratio)
+    
+    # Das Wasserzeichen wird herunterskaliert. Es wird ein Lanczos-Filter 
+    # für eine verlustarme Kantenglättung angewendet.
+    watermark = watermark.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    
+    # Die Deckkraft des Alphakanals wird modifiziert.
+    alpha = watermark.split()[3]
+    alpha = ImageEnhance.Brightness(alpha).enhance(opacity)
+    watermark.putalpha(alpha)
+    
+    # Die absolute Pixelposition (unten rechts) wird berechnet.
+    x_pos = frame.width - target_width - margin
+    y_pos = frame.height - target_height - margin
+    
+    # Ein temporärer Puffer für das Alpha-Compositing wird erstellt.
+    transparent_overlay = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+    transparent_overlay.paste(watermark, (x_pos, y_pos), mask=watermark)
+    
+    # Das Wasserzeichen wird mit dem gerenderten Basisbild verschmolzen.
+    final_frame = Image.alpha_composite(frame.convert("RGBA"), transparent_overlay)
+    
+    # Der Alphakanal wird für den standardisierten Video-Export entfernt.
+    return final_frame.convert("RGB")
